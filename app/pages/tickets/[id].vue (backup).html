@@ -1,0 +1,112 @@
+<template>
+  <div class="max-w-4xl mx-auto bg-white shadow rounded-xl p-6">
+    <!-- Ticket Header -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
+      <div class="flex items-center gap-3">
+        <span class="px-2 py-1 text-xs rounded-md bg-emerald-100 text-emerald-700 font-medium">
+          University
+        </span>
+        <h2 class="text-xl font-bold text-gray-800">
+          {{ ticket.title }}
+        </h2>
+      </div>
+      <div class="flex gap-2">
+        <span class="px-3 py-1 text-xs rounded-full bg-red-100 text-red-600 font-medium">
+          Urgent
+        </span>
+        <span class="px-3 py-1 text-xs rounded-full bg-yellow-100 text-yellow-600 font-medium">
+          In Progress
+        </span>
+      </div>
+    </div>
+
+    <!-- Ticket Details -->
+    <div class="text-sm text-gray-600 mb-6">
+      <p class="mb-2">OPU can’t link lecturer to course.</p>
+      <p>👩‍🎓 {{ ticket.reporter }} · {{ ticket.university }}</p>
+      <p>📅 Created {{ ticket.created }}</p>
+      <p>🕒 Updated {{ ticket.updated }}</p>
+      <p>👤 Assigned to {{ ticket.assigned }}</p>
+    </div>
+
+    <!-- Conversation -->
+    <div class="space-y-4 mb-8">
+      <div
+        v-for="(msg, i) in ticket.conversation"
+        :key="i"
+        class="border rounded-lg p-4 bg-gray-50"
+      >
+        <div class="flex items-center justify-between">
+          <p class="text-sm font-semibold text-gray-800">{{ msg.sender }}</p>
+          <span class="text-xs text-gray-500">{{ msg.time }}</span>
+        </div>
+        <p class="text-sm text-gray-700 mt-2">{{ msg.text }}</p>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+      <div class="flex gap-2">
+        <button
+          class="px-4 py-2 rounded-md border text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+        >
+          Assign ▾
+        </button>
+        <button
+          class="px-4 py-2 rounded-md text-sm font-medium text-white bg-red-600 hover:bg-red-700"
+        >
+          Escalate
+        </button>
+        <button
+          class="px-4 py-2 rounded-md text-sm font-medium text-gray-700 bg-gray-200 hover:bg-gray-300"
+        >
+          Close
+        </button>
+        <button
+          class="px-4 py-2 rounded-md text-sm font-medium text-white bg-green-600 hover:bg-green-700"
+        >
+          Mark Resolved
+        </button>
+      </div>
+      <div class="flex items-center gap-2 flex-1 justify-end">
+        <input
+          type="text"
+          placeholder="Write a reply"
+          class="flex-1 px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring focus:ring-indigo-100"
+        />
+        <button
+          class="px-4 py-2 rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
+        >
+          Send
+        </button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { reactive } from 'vue'
+
+const ticket = reactive({
+  id: "U-2001",
+  title: "Lecturer onboarding issue",
+  university: "Universiti Malaya (UM)",
+  reporter: "Dr. Lina",
+  status: "In Progress",
+  created: "8/28/2025, 9:47:24 AM",
+  updated: "8/28/2025, 1:53:30 PM",
+  assigned: "Afiq (Support)",
+  conversation: [
+    {
+      sender: "Dr. Lina - Lecturer",
+      text: "Error when adding lecturer.",
+      time: "8/28/2025, 9:47:24 AM"
+    },
+    {
+      sender: "OPU Admin (UM) - University Admin",
+      text: "Investigating with WoW support.",
+      time: "8/28/2025, 11:57:24 AM"
+    }
+  ]
+})
+</script>
