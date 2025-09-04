@@ -2,12 +2,13 @@
   <div class="max-w-6xl mx-auto bg-white shadow-lg rounded-2xl p-6">
     <!-- Header -->
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-      <!-- Title -->
       <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
         🎟️ Tickets
+        <span class="text-sm font-medium text-gray-500">
+          ({{ userRoleLabel }})
+        </span>
       </h2>
 
-      <!-- Right Actions -->
       <div class="flex items-center gap-3">
         <!-- Search -->
         <div class="relative">
@@ -36,6 +37,14 @@
         >
           + Create Ticket
         </NuxtLink>
+
+        <!-- Logout -->
+        <button
+          @click="logout"
+          class="bg-gray-200 text-gray-800 px-4 py-2 rounded-xl shadow hover:bg-gray-300 transition duration-200"
+        >
+          Logout
+        </button>
       </div>
     </div>
 
@@ -67,12 +76,12 @@
                 {{ ticket.title }}
               </NuxtLink>
             </td>
-            <td class="px-4 py-3 text-gray-700">{{ ticket.university }}</td>
+            <td class="px-4 py-3 text-gray-700">{{ ticket.university?.name || '—' }}</td>
             <td class="px-4 py-3">
               <TicketStatusBadge :status="ticket.status" />
             </td>
-            <td class="px-4 py-3 text-gray-600">{{ ticket.assignee || '—' }}</td>
-            <td class="px-4 py-3 text-sm text-gray-500">{{ ticket.updated }}</td>
+            <td class="px-4 py-3 text-gray-600">{{ ticket.assigned?.name || '—' }}</td>
+            <td class="px-4 py-3 text-sm text-gray-500">{{ ticket.updated_at }}</td>
           </tr>
         </tbody>
       </table>
@@ -81,36 +90,103 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import TicketStatusBadge from '~/components/TicketStatusBadge.vue'
+import { useRuntimeConfig } from '#app'
+
+const router = useRouter()
+const config = useRuntimeConfig()
 
 const searchQuery = ref("")
+const tickets = ref([])
+const token = ref(null)
+const user = ref(null)
+const userRoleLabel = ref("")
 
-const tickets = ref([
-  {
-    id: "U-1001",
-    title: "GiGA credits sync",
-    university: "Universitas Jakarta Timur (UNIJAT)",
-    status: "Pending",
-    assignee: null,
-    updated: "8/28/2025, 10:00:00 AM"
-  },
-  {
-    id: "U-1002",
-    title: "Database migration issue",
-    university: "Universitas Bandung Barat",
-    status: "In Progress",
-    assignee: "Admin-1",
-    updated: "8/30/2025, 02:00:00 PM"
+const baseUrl = import.meta.env.VITE_BASE_URL
+
+// hanya ambil localStorage di client
+onMounted(() => {
+  if (process.client) {
+    token.value = localStorage.getItem('auth_token')
+    user.value = JSON.parse(localStorage.getItem('auth_user') || "null")
+
+    if (!token.value) {
+      router.push('/auth/login')
+    } else {
+      fetchTickets()
+      setUserRoleLabel()
+    }
   }
-])
+})
+
+function setUserRoleLabel() {
+  if (!user.value) return
+  if (user.value.role === "admin_university") {
+    userRoleLabel.value = `Admin University - ${user.value.university?.name || "—"}`
+  } else {
+    // userRoleLabel.value = user.value.role
+    userRoleLabel.value = 'Support Staff'
+  }
+}
+
+// Fetch tickets
+async function fetchTickets() {
+  try {
+    const res = await fetch(`${baseUrl}/api/tickets`, {
+      headers: {
+        Authorization: `Bearer ${token.value}`,
+        Accept: 'application/json',
+      },
+    })
+
+    if (res.status === 401) {
+      doLogout()
+      return
+    }
+
+    if (!res.ok) throw new Error('Failed to fetch tickets')
+
+    const data = await res.json()
+    tickets.value = data.data || data
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+// Logout
+async function logout() {
+  try {
+    await fetch(`${baseUrl}/api/logout`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token.value}`,
+        Accept: 'application/json',
+      },
+    })
+  } catch (err) {
+    console.error("Logout error:", err)
+  } finally {
+    doLogout()
+  }
+}
+
+// Bersihkan storage + redirect
+function doLogout() {
+  if (process.client) {
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('auth_user')
+  }
+  router.push('/auth/login')
+}
 
 const filteredTickets = computed(() => {
   if (!searchQuery.value) return tickets.value
   return tickets.value.filter(ticket =>
-    ticket.title.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-    ticket.university.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-    ticket.id.toLowerCase().includes(searchQuery.value.toLowerCase())
+    ticket.title?.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+    ticket.university?.name?.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+    ticket.id?.toString().toLowerCase().includes(searchQuery.value.toLowerCase())
   )
 })
 </script>

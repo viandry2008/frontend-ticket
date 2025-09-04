@@ -5,16 +5,14 @@
       <div>
         <h2 class="text-2xl font-bold text-gray-800">{{ ticket.title }}</h2>
         <p class="text-sm text-gray-500">
-          {{ ticket.university }} · Created {{ ticket.created }}
+          {{ ticket.university?.name }} · Created {{ ticket.created_at }}
         </p>
         <p class="text-xs text-gray-400">
-          Updated {{ ticket.updated }} · Assigned to <span class="font-medium text-gray-700">{{ ticket.assigned }}</span>
+          Updated {{ ticket.updated_at }} · Assigned to
+          <span class="font-medium text-gray-700">{{ ticket.assigned?.name || '—' }}</span>
         </p>
       </div>
       <div class="flex gap-2">
-        <span class="px-3 py-1 text-xs rounded-full bg-red-100 text-red-600 font-medium shadow-sm">
-          Urgent
-        </span>
         <span class="px-3 py-1 text-xs rounded-full bg-yellow-100 text-yellow-600 font-medium shadow-sm">
           {{ ticket.status }}
         </span>
@@ -24,28 +22,34 @@
     <!-- Conversation -->
     <div class="space-y-4">
       <div
-        v-for="(msg, i) in ticket.conversation"
-        :key="i"
+        v-for="msg in conversations"
+        :key="msg.id"
         class="flex"
-        :class="msg.sender.includes('Admin') ? 'justify-end' : 'justify-start'"
+        :class="msg.sender_id === currentUserId ? 'justify-end' : 'justify-start'"
       >
         <div
           class="max-w-md px-4 py-3 rounded-2xl shadow-sm"
-          :class="msg.sender.includes('Admin')
-            ? 'bg-gradient-to-r from-purple-600 to-pink-500 text-white'
-            : 'bg-gray-100 text-gray-800'"
+          :class="msg.sender_id === currentUserId
+            ? 'bg-gradient-to-r from-purple-600 to-pink-500 text-white text-right'
+            : 'bg-gray-100 text-gray-800 text-left'"
         >
-          <p class="text-sm font-semibold">
-            {{ msg.sender }}
-            <span class="text-xs ml-2 opacity-70">{{ msg.time }}</span>
+          <!-- tampilkan nama hanya jika bukan user login -->
+          <p v-if="msg.sender_id !== currentUserId" class="text-sm font-semibold">
+            User {{ msg.sender_id }}
+            <span class="text-xs ml-2 opacity-70">{{ msg.created_at }}</span>
           </p>
-          <p class="text-sm mt-1">{{ msg.text }}</p>
+          <p v-else class="text-xs opacity-80 mb-1">{{ msg.created_at }}</p>
+
+          <p class="text-sm mt-1 whitespace-pre-line">{{ msg.message }}</p>
+          <p v-if="msg.attachment" class="text-xs mt-1 text-blue-200 underline cursor-pointer">
+            📎 {{ msg.attachment }}
+          </p>
         </div>
       </div>
     </div>
 
-    <!-- Actions -->
-    <div class="mt-8 flex flex-wrap gap-3 relative">
+    <!-- Actions (hanya untuk support staff / admin) -->
+    <div v-if="['support_staff','admin'].includes(currentUserRole)" class="mt-8 flex flex-wrap gap-3 relative">
       <!-- Assign Dropdown -->
       <div class="relative">
         <button
@@ -59,29 +63,33 @@
           class="absolute mt-2 w-48 bg-white border rounded-xl shadow-lg z-10"
         >
           <ul class="text-sm text-gray-700">
-            <li
-              v-for="(user, i) in assignableUsers"
-              :key="i"
+            <li 
+              v-for="user in assignableUsers"
+              :key="user.id"
               @click="assignTo(user)"
               class="px-4 py-2 hover:bg-gray-100 cursor-pointer"
             >
-              {{ user }}
+              {{ user.name }}
             </li>
-          </ul>
+        </ul>
+
         </div>
       </div>
 
-      <button
+      <!-- <button
+        @click="updateStatus('Escalated')"
         class="px-4 py-2 rounded-xl font-medium text-white bg-gradient-to-r from-red-500 to-red-600 shadow hover:shadow-lg transition"
       >
         🚨 Escalate
-      </button>
+      </button> -->
       <button
+        @click="updateStatus('Closed')"
         class="px-4 py-2 rounded-xl font-medium text-white bg-gradient-to-r from-gray-600 to-gray-700 shadow hover:shadow-lg transition"
       >
         ✖ Close
       </button>
       <button
+        @click="updateStatus('Resolved')"
         class="px-4 py-2 rounded-xl font-medium text-white bg-gradient-to-r from-green-500 to-emerald-600 shadow hover:shadow-lg transition"
       >
         ✅ Mark Resolved
@@ -91,11 +99,13 @@
     <!-- Reply Box -->
     <div class="mt-6 flex items-center gap-3">
       <input
+        v-model="replyMessage"
         type="text"
         placeholder="Write a reply..."
         class="flex-1 px-4 py-2 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 shadow-sm"
       />
       <button
+        @click="sendReply"
         class="px-5 py-2 rounded-xl font-medium text-white bg-gradient-to-r from-indigo-500 to-indigo-600 shadow hover:shadow-lg transition"
       >
         ➤ Send
@@ -105,41 +115,149 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute } from 'vue-router'
+import { Realtime } from 'ably'
 
+const route = useRoute()
+const ticket = ref({})
+const conversations = ref([])
+const replyMessage = ref("")
 const showAssignMenu = ref(false)
 
-const ticket = reactive({
-  id: "U-2001",
-  title: "Lecturer onboarding issue",
-  university: "Universiti Malaya (UM)",
-  reporter: "Dr. Lina",
-  status: "In Progress",
-  created: "8/28/2025, 9:47:24 AM",
-  updated: "8/28/2025, 1:53:30 PM",
-  assigned: "Afiq (Support)",
-  conversation: [
-    {
-      sender: "Dr. Lina - Lecturer",
-      text: "Error when adding lecturer.",
-      time: "8/28/2025, 9:47:24 AM"
+const currentUserId = ref(null)
+const currentUserRole = ref('user')
+const token = ref(null)
+
+const assignableUsers = ref([])
+
+const baseUrl = import.meta.env.VITE_BASE_URL
+
+// ==== FETCH API ====
+async function fetchTicket() {
+  const res = await fetch(`${baseUrl}/api/tickets/${route.params.id}`, {
+    headers: { Authorization: `Bearer ${token.value}` }
+  })
+  const data = await res.json()
+  ticket.value = data
+}
+
+async function fetchAssignableUsers() {
+  const res = await fetch(`${baseUrl}/api/tickets/users/assign`, {
+    headers: { Authorization: `Bearer ${token.value}` }
+  })
+  const data = await res.json()
+  assignableUsers.value = data.data // karena response punya { message, data: [...] }
+}
+
+async function fetchConversations() {
+  const res = await fetch(`${baseUrl}/api/tickets/${route.params.id}/conversations`, {
+    headers: { Authorization: `Bearer ${token.value}` }
+  })
+  const data = await res.json()
+  conversations.value = data
+}
+
+async function assignTo(user) {
+  // 1. Assign ke user terpilih
+  await fetch(`${baseUrl}/api/tickets/${route.params.id}/assign`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token.value}`
     },
-    {
-      sender: "OPU Admin (UM) - University Admin",
-      text: "Investigating with WoW support.",
-      time: "8/28/2025, 11:57:24 AM"
-    }
-  ]
-})
+    body: JSON.stringify({ assigned_to: user.id })
+  })
 
-const assignableUsers = [
-  "OPU Admin (UM)",
-  "Afiq (Support)",
-  "Nadia (Manager)"
-]
+  // update UI: siapa yang assigned
+  ticket.value.assigned = user
 
-function assignTo(user) {
-  ticket.assigned = user
+  // 2. Change status jadi Assigned
+  await fetch(`${baseUrl}/api/tickets/${route.params.id}/status`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token.value}`
+    },
+    body: JSON.stringify({ status: "assigned" })
+  })
+
+  // update UI: status ticket
+  ticket.value.status = "assigned"
+
+  // tutup dropdown
   showAssignMenu.value = false
 }
+
+async function updateStatus(status) {
+  await fetch(`${baseUrl}/api/tickets/${route.params.id}/status`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token.value}`
+    },
+    body: JSON.stringify({ status })
+  })
+  ticket.value.status = status
+}
+
+async function sendReply() {
+  if (!replyMessage.value) return
+  await fetch(`${baseUrl}/api/tickets/${route.params.id}/conversations`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token.value}`
+    },
+    body: JSON.stringify({ message: replyMessage.value })
+  })
+
+  // publish ke Ably agar realtime
+  channel.publish('new-message', {
+    sender_id: currentUserId.value,
+    message: replyMessage.value,
+    created_at: new Date().toISOString()
+  })
+
+  replyMessage.value = ""
+}
+
+// ==== ABLY ====
+let ably = null
+let channel = null
+
+function initAbly() {
+  // ganti dengan API key kamu
+  ably = new Realtime({ key: import.meta.env.VITE_ABLY_KEY })
+
+  // setiap ticket punya channel unik
+  channel = ably.channels.get(`ticket-${route.params.id}`)
+
+  // subscribe ke pesan baru
+  channel.subscribe('new-message', (msg) => {
+    conversations.value.push({
+      id: Date.now(),
+      sender_id: msg.data.sender_id,
+      message: msg.data.message,
+      created_at: msg.data.created_at
+    })
+  })
+}
+
+onMounted(() => {
+  token.value = localStorage.getItem('auth_token')
+  currentUserId.value = Number(localStorage.getItem('user_id'))
+  currentUserRole.value = localStorage.getItem('role') || 'user'
+
+  fetchTicket()
+  fetchConversations()
+   fetchAssignableUsers()
+  initAbly()
+})
+
+onBeforeUnmount(() => {
+  if (channel) channel.detach()
+  if (ably) ably.close()
+})
 </script>
+
