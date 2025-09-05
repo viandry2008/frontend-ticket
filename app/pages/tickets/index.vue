@@ -78,10 +78,15 @@
             </td>
             <td class="px-4 py-3 text-gray-700">{{ ticket.university?.name || '—' }}</td>
             <td class="px-4 py-3">
-              <TicketStatusBadge :status="ticket.status" />
+              <span
+                class="px-3 py-1 text-xs font-medium rounded-full shadow-sm"
+                :class="$getStatusClass(ticket.status)"
+              >
+                {{ $formatStatus(ticket.status) }}
+              </span>
             </td>
             <td class="px-4 py-3 text-gray-600">{{ ticket.assigned?.name || '—' }}</td>
-            <td class="px-4 py-3 text-sm text-gray-500">{{ ticket.updated_at }}</td>
+            <td class="px-4 py-3 text-sm text-gray-500">{{ $formatDate(ticket.updated_at)  }}</td>
           </tr>
         </tbody>
       </table>
@@ -92,8 +97,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import TicketStatusBadge from '~/components/TicketStatusBadge.vue'
 import { useRuntimeConfig } from '#app'
+const { $formatDate, $getStatusClass, $formatStatus } = useNuxtApp()
 
 const router = useRouter()
 const config = useRuntimeConfig()

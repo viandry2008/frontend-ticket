@@ -33,7 +33,7 @@
         </div>
 
         <!-- Actions -->
-        <div class="flex justify-between items-center text-sm">
+        <!-- <div class="flex justify-between items-center text-sm">
           <label class="flex items-center gap-2 text-gray-600">
             <input type="checkbox" v-model="form.remember" class="rounded border-gray-300" />
             Remember me
@@ -41,7 +41,7 @@
           <NuxtLink to="/forgot-password" class="text-purple-600 hover:underline">
             Forgot password?
           </NuxtLink>
-        </div>
+        </div> -->
 
         <!-- Error -->
         <p v-if="errorMessage" class="text-red-500 text-sm text-center">{{ errorMessage }}</p>
@@ -60,12 +60,12 @@
       </form>
 
       <!-- Register link -->
-      <p class="mt-6 text-center text-sm text-gray-600">
+      <!-- <p class="mt-6 text-center text-sm text-gray-600">
         Don’t have an account?
         <NuxtLink to="/register" class="text-purple-600 hover:underline">
           Register here
         </NuxtLink>
-      </p>
+      </p> -->
     </div>
   </div>
 </template>

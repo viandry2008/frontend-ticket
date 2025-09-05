@@ -1,20 +1,34 @@
 <template>
   <div class="max-w-4xl mx-auto bg-white shadow-lg rounded-2xl p-8">
+    <!-- Tombol Back -->
+    <button
+      @click="router.push('/tickets')"
+      class="mb-6 px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium shadow-sm transition"
+    >
+      ⬅ Back
+    </button>
+
     <!-- Ticket Header -->
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
       <div>
         <h2 class="text-2xl font-bold text-gray-800">{{ ticket.title }}</h2>
+        <p v-if="ticket.description" class="text-base text-gray-600 mt-1">
+          {{ ticket.description }}
+        </p>
         <p class="text-sm text-gray-500">
-          {{ ticket.university?.name }} · Created {{ ticket.created_at }}
+          {{ ticket.created_by?.name }} ·  {{ ticket.created_by?.university.name }} · Created {{ $formatDate(ticket.created_at) }}
         </p>
         <p class="text-xs text-gray-400">
-          Updated {{ ticket.updated_at }} · Assigned to
+          Updated {{ $formatDate(ticket.updated_at) }} · Assigned to
           <span class="font-medium text-gray-700">{{ ticket.assigned?.name || '—' }}</span>
         </p>
       </div>
       <div class="flex gap-2">
-        <span class="px-3 py-1 text-xs rounded-full bg-yellow-100 text-yellow-600 font-medium shadow-sm">
-          {{ ticket.status }}
+        <span
+          class="px-3 py-1 text-xs font-medium rounded-full shadow-sm"
+          :class="$getStatusClass(ticket.status)"
+        >
+          {{ $formatStatus(ticket.status) }}
         </span>
       </div>
     </div>
@@ -35,15 +49,12 @@
         >
           <!-- tampilkan nama hanya jika bukan user login -->
           <p v-if="msg.sender_id !== currentUserId" class="text-sm font-semibold">
-            User {{ msg.sender_id }}
-            <span class="text-xs ml-2 opacity-70">{{ msg.created_at }}</span>
+            {{ msg.sender?.name || 'Unknown' }}
+            <span class="text-xs ml-2 opacity-70">{{ $formatDate(msg.created_at) }}</span>
           </p>
-          <p v-else class="text-xs opacity-80 mb-1">{{ msg.created_at }}</p>
+          <p v-else class="text-xs opacity-80 mb-1">{{ $formatDate(msg.created_at) }}</p>
 
           <p class="text-sm mt-1 whitespace-pre-line">{{ msg.message }}</p>
-          <p v-if="msg.attachment" class="text-xs mt-1 text-blue-200 underline cursor-pointer">
-            📎 {{ msg.attachment }}
-          </p>
         </div>
       </div>
     </div>
@@ -67,29 +78,31 @@
               v-for="user in assignableUsers"
               :key="user.id"
               @click="assignTo(user)"
-              class="px-4 py-2 hover:bg-gray-100 cursor-pointer"
+              class="px-4 py-2 hover:bg-gray-100 cursor-pointer"  
             >
-              {{ user.name }}
+              {{ user.name }} ({{ $formatStatus(user.role) }})
             </li>
-        </ul>
-
+          </ul>
         </div>
       </div>
 
-      <!-- <button
-        @click="updateStatus('Escalated')"
-        class="px-4 py-2 rounded-xl font-medium text-white bg-gradient-to-r from-red-500 to-red-600 shadow hover:shadow-lg transition"
-      >
-        🚨 Escalate
-      </button> -->
+      <!-- Status Buttons -->
       <button
-        @click="updateStatus('Closed')"
+        @click="updateStatus('in_progress')"
+        class="px-4 py-2 rounded-xl font-medium text-white bg-gradient-to-r from-blue-500 to-blue-600 shadow hover:shadow-lg transition"
+      >
+        🔄 In Progress
+      </button>
+
+      <button
+        @click="updateStatus('closed')"
         class="px-4 py-2 rounded-xl font-medium text-white bg-gradient-to-r from-gray-600 to-gray-700 shadow hover:shadow-lg transition"
       >
         ✖ Close
       </button>
+
       <button
-        @click="updateStatus('Resolved')"
+        @click="updateStatus('resolved')"
         class="px-4 py-2 rounded-xl font-medium text-white bg-gradient-to-r from-green-500 to-emerald-600 shadow hover:shadow-lg transition"
       >
         ✅ Mark Resolved
@@ -116,9 +129,11 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Realtime } from 'ably'
+const { $formatDate } = useNuxtApp()
 
+const router = useRouter()
 const route = useRoute()
 const ticket = ref({})
 const conversations = ref([])
@@ -138,8 +153,7 @@ async function fetchTicket() {
   const res = await fetch(`${baseUrl}/api/tickets/${route.params.id}`, {
     headers: { Authorization: `Bearer ${token.value}` }
   })
-  const data = await res.json()
-  ticket.value = data
+  ticket.value = await res.json()
 }
 
 async function fetchAssignableUsers() {
@@ -147,19 +161,17 @@ async function fetchAssignableUsers() {
     headers: { Authorization: `Bearer ${token.value}` }
   })
   const data = await res.json()
-  assignableUsers.value = data.data // karena response punya { message, data: [...] }
+  assignableUsers.value = data.data
 }
 
 async function fetchConversations() {
   const res = await fetch(`${baseUrl}/api/tickets/${route.params.id}/conversations`, {
     headers: { Authorization: `Bearer ${token.value}` }
   })
-  const data = await res.json()
-  conversations.value = data
+  conversations.value = await res.json()
 }
 
 async function assignTo(user) {
-  // 1. Assign ke user terpilih
   await fetch(`${baseUrl}/api/tickets/${route.params.id}/assign`, {
     method: "PUT",
     headers: {
@@ -168,30 +180,16 @@ async function assignTo(user) {
     },
     body: JSON.stringify({ assigned_to: user.id })
   })
-
-  // update UI: siapa yang assigned
   ticket.value.assigned = user
 
-  // 2. Change status jadi Assigned
-  await fetch(`${baseUrl}/api/tickets/${route.params.id}/status`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token.value}`
-    },
-    body: JSON.stringify({ status: "assigned" })
-  })
-
-  // update UI: status ticket
-  ticket.value.status = "assigned"
-
-  // tutup dropdown
+  // langsung ubah status assigned
+  await updateStatus('assigned')
   showAssignMenu.value = false
 }
 
 async function updateStatus(status) {
   await fetch(`${baseUrl}/api/tickets/${route.params.id}/status`, {
-    method: "POST",
+    method: "PUT",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token.value}`
@@ -199,26 +197,25 @@ async function updateStatus(status) {
     body: JSON.stringify({ status })
   })
   ticket.value.status = status
+
+  // broadcast realtime
+  channel.publish('status-changed', { status })
 }
 
-async function sendReply() {
+async function sendReply() {  
   if (!replyMessage.value) return
-  await fetch(`${baseUrl}/api/tickets/${route.params.id}/conversations`, {
+
+  const res = await fetch(`${baseUrl}/api/tickets/${route.params.id}/conversations`, {
     method: "POST",
-    headers: {
+    headers: {  
       "Content-Type": "application/json",
       Authorization: `Bearer ${token.value}`
     },
     body: JSON.stringify({ message: replyMessage.value })
   })
 
-  // publish ke Ably agar realtime
-  channel.publish('new-message', {
-    sender_id: currentUserId.value,
-    message: replyMessage.value,
-    created_at: new Date().toISOString()
-  })
-
+  const newMsg = await res.json()
+  channel.publish('new-message', newMsg)
   replyMessage.value = ""
 }
 
@@ -227,20 +224,15 @@ let ably = null
 let channel = null
 
 function initAbly() {
-  // ganti dengan API key kamu
   ably = new Realtime({ key: import.meta.env.VITE_ABLY_KEY })
-
-  // setiap ticket punya channel unik
   channel = ably.channels.get(`ticket-${route.params.id}`)
 
-  // subscribe ke pesan baru
   channel.subscribe('new-message', (msg) => {
-    conversations.value.push({
-      id: Date.now(),
-      sender_id: msg.data.sender_id,
-      message: msg.data.message,
-      created_at: msg.data.created_at
-    })
+    conversations.value.push(msg.data)
+  })
+
+  channel.subscribe('status-changed', (msg) => {
+    ticket.value.status = msg.data.status
   })
 }
 
@@ -251,7 +243,7 @@ onMounted(() => {
 
   fetchTicket()
   fetchConversations()
-   fetchAssignableUsers()
+  fetchAssignableUsers()
   initAbly()
 })
 
@@ -259,5 +251,5 @@ onBeforeUnmount(() => {
   if (channel) channel.detach()
   if (ably) ably.close()
 })
-</script>
 
+</script>
